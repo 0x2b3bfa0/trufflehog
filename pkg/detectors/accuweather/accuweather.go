@@ -16,10 +16,12 @@ type Scanner struct {
 	client *http.Client
 }
 
-// Ensure the Scanner satisfies the interface at compile time.
-var _ detectors.Detector = (*Scanner)(nil)
+const accuweatherURL = "https://dataservice.accuweather.com"
 
 var (
+	// Ensure the Scanner satisfies the interface at compile time.
+	_ detectors.Detector = (*Scanner)(nil)
+
 	defaultClient = common.SaneHttpClient()
 
 	// Make sure that your group is surrounded in boundary characters such as below to reduce false positives.
@@ -75,7 +77,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) (result
 }
 
 func verifyAccuweather(ctx context.Context, client *http.Client, resMatch string) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://dataservice.accuweather.com/locations/v1/cities/autocomplete?apikey="+resMatch+"&q=----&language=en-us", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, accuweatherURL+"/locations/v1/cities/autocomplete?apikey="+resMatch+"&q=----&language=en-us", nil)
 	if err != nil {
 		return false, err
 	}
@@ -84,12 +86,17 @@ func verifyAccuweather(ctx context.Context, client *http.Client, resMatch string
 		return false, err
 	}
 	defer res.Body.Close()
-	if res.StatusCode == http.StatusOK {
+
+	// https://developer.accuweather.com/accuweather-locations-api/apis/get/locations/v1/cities/autocomplete
+	switch res.StatusCode {
+	case http.StatusOK, http.StatusForbidden:
+		// 403 indicates lack of permission, but valid token
 		return true, nil
-	} else if res.StatusCode != http.StatusUnauthorized {
+	case http.StatusUnauthorized:
+		return false, nil
+	default:
 		return false, fmt.Errorf("unexpected HTTP response status %d", res.StatusCode)
 	}
-	return false, nil
 }
 
 func (s Scanner) Type() detectorspb.DetectorType {
